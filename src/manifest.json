@@ -14,24 +14,24 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "src/background/background.js"
+    "service_worker": "background/background.js"
   },
   "action": {
-    "default_popup": "src/popup/popup.html",
+    "default_popup": "popup/popup.html",
     "default_icon": {
-      "16": "src/assets/icon16.png",
-      "48": "src/assets/icon48.png",
-      "128": "src/assets/icon128.png"
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
     }
   },
   "icons": {
-    "16": "src/assets/icon16.png",
-    "48": "src/assets/icon48.png",
-    "128": "src/assets/icon128.png"
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
   },
   "web_accessible_resources": [
     {
-      "resources": ["src/blocked/blocked.html", "src/assets/*"],
+      "resources": ["blocked/blocked.html", "assets/*"],
       "matches": ["<all_urls>"]
     }
   ]
