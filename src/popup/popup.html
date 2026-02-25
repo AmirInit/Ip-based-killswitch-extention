@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP Kill Switch</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>IP Kill Switch</h1>
+      <div id="ip-status" class="ip-status loading">
+        <span class="label">Current IP</span>
+        <span class="value" id="current-ip">Checking...</span>
+      </div>
+    </header>
+
+    <div class="panic-section">
+      <button id="panic-btn" class="panic-btn">PANIC MODE: OFF</button>
+    </div>
+
+    <section class="rules-section">
+      <h2>Domain Rules</h2>
+      <div id="rules-list" class="rules-list">
+        <!-- Rules will be injected here -->
+        <div class="empty-state">No rules added yet.</div>
+      </div>
+
+      <div class="add-rule-form">
+        <div class="input-group">
+          <input type="text" id="domain-input" placeholder="example.com" required>
+        </div>
+        <div class="input-group">
+          <input type="text" id="ips-input" placeholder="1.2.3.4, 5.6.7.8" required>
+        </div>
+        <button id="add-rule-btn" class="action-btn">Add Rule</button>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <details>
+        <summary>Advanced Settings</summary>
+        <div class="settings-content">
+          <div class="setting-item">
+            <label for="api-url">IP Detection API</label>
+            <input type="text" id="api-url" value="https://api.ipify.org?format=json">
+          </div>
+
+          <div class="setting-item checkbox">
+            <label for="webrtc-toggle">Disable WebRTC (Leak Protection)</label>
+            <input type="checkbox" id="webrtc-toggle" checked>
+          </div>
+
+          <div class="setting-item checkbox">
+            <label for="autoclose-toggle">Auto-Close Tab on Block</label>
+            <input type="checkbox" id="autoclose-toggle">
+          </div>
+
+          <button id="save-settings-btn" class="secondary-btn">Save Settings</button>
+        </div>
+      </details>
+    </section>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
