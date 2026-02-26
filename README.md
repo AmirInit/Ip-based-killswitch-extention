@@ -11,6 +11,7 @@ A robust, fail-closed privacy tool for Chrome that whitelists specific IPs for s
 - **Multi-IP Support:** Whitelist multiple comma-separated IPs per domain.
 - **CIDR Support:** Whitelist IPv4 ranges (e.g., `192.168.1.0/24`).
 - **Panic Mode:** Instantly severs all internet access.
+- **Auto-Reload:** Automatically retries blocked tabs when your IP becomes valid (configurable).
 - **Import/Export:** Share rules easily.
 
 ## Installation
@@ -40,6 +41,7 @@ A robust, fail-closed privacy tool for Chrome that whitelists specific IPs for s
 -   **Lease Timeout:** How long an IP check is valid. Default 5s. Lower = stricter but more sensitive to network blips.
 -   **WebRTC:** Disabled by default to prevent leaks.
 -   **Auto-Close:** Automatically close tabs that are blocked.
+-   **Auto-Reload:** Automatically retry when unblocked.
 
 ## Troubleshooting
 

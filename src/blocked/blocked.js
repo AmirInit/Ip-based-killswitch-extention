@@ -59,6 +59,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('popup/popup.html') });
   });
 
+  // --- Auto-Reload Logic ---
+  chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local") {
+          // Check if auto-reload is enabled
+          chrome.storage.local.get("settings").then(data => {
+             const autoReload = data.settings && data.settings.autoReload;
+             if (autoReload) {
+                 // Check if we are now allowed
+                 checkStatus().then(allowed => {
+                     if (allowed && targetUrl && targetUrl.startsWith('http')) {
+                         console.log("Auto-Reloading...");
+                         window.location.href = targetUrl;
+                     }
+                 });
+             }
+          });
+      }
+  });
+
   // --- Functions ---
 
   async function checkStatus() {
@@ -78,7 +97,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Display IP
     currentIpEl.textContent = currentIp;
-    if (currentIp === "Unknown") {
+    if (currentIp.includes("Unknown")) {
       currentIpEl.style.color = "#ff9800";
     } else {
       currentIpEl.style.color = "#f44336"; // Blocked usually implies mismatch, so red
@@ -86,10 +105,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Find applicable rule
     // We match against hostname.
-    // Logic: find rule where hostname ends with rule.domain (or is exactly rule.domain)
     const applicableRule = rules.find(r => {
-      // Simple match: does hostname end with domain?
-      // e.g. target: sub.example.com, rule: example.com -> Yes
       if (!r.domain) return false;
       const domain = r.domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
       return targetHostname === domain || targetHostname.endsWith("." + domain);
@@ -99,7 +115,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       allowedIpsEl.textContent = applicableRule.ips.join(", ");
 
       // Check if NOW allowed
-      if (applicableRule.ips.includes(currentIp) && !panicMode) {
+      const isAllowed = applicableRule.ips.some(allowedIp => {
+           const cleanAllowed = allowedIp.trim();
+           if (cleanAllowed.includes("/")) {
+               return ipInCidr(currentIp, cleanAllowed);
+           }
+           return cleanAllowed === currentIp;
+       });
+
+      if (isAllowed && !panicMode && !currentIp.includes("Unknown")) {
         currentIpEl.style.color = "#4caf50";
         return true;
       }
@@ -108,5 +132,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     return false;
+  }
+
+  // Duplicated CIDR Logic (should be shared but importing modules in vanilla JS extension is tricky without build step)
+  // Simple enough to copy for now.
+  function ipInCidr(ip, cidr) {
+    try {
+        const [range, bits] = cidr.split('/');
+        const mask = ~(2**(32 - bits) - 1);
+        return (ipToLong(ip) & mask) === (ipToLong(range) & mask);
+    } catch(e) {
+        return false;
+    }
+  }
+
+  function ipToLong(ip) {
+    return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
   }
 });

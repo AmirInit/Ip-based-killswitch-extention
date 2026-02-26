@@ -15,11 +15,26 @@ const TIMEOUT_MS = 2000;
 
 // State
 let isChecking = false;
-let providerHealth = {}; // { url: { failures: 0, lastSuccess: 0 } }
+let checkTimer = null;
+let providerHealth = {};
+
+// --- Message Listener (Top Level for Stability) ---
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    // Always respond to prevent "Receiving end does not exist"
+    if (msg.type === "FORCE_CHECK") {
+        if (!isChecking) {
+             // Interrupt timer if waiting
+             if (checkTimer) clearTimeout(checkTimer);
+             checkIpLoop(true);
+        }
+    }
+    sendResponse({ received: true });
+    return false; // Sync response
+});
 
 // --- Main Loop ---
 
-async function checkIpLoop() {
+async function checkIpLoop(force = false) {
   if (isChecking) return;
   isChecking = true;
 
@@ -31,7 +46,7 @@ async function checkIpLoop() {
         ip: result.ip,
         provider: result.provider,
         timestamp: Date.now()
-      }).catch(() => {});
+      }).catch(() => {}); // Ignore if background is not listening
     } else {
       // All failed
       chrome.runtime.sendMessage({
@@ -43,12 +58,13 @@ async function checkIpLoop() {
     console.error("Critical error in IP loop:", e);
   } finally {
     isChecking = false;
-    setTimeout(checkIpLoop, CHECK_INTERVAL);
+    // Schedule next
+    checkTimer = setTimeout(checkIpLoop, CHECK_INTERVAL);
   }
 }
 
-// Start immediately
-checkIpLoop();
+// Start immediately on load
+checkIpLoop(true);
 
 // --- IP Fetching Logic ---
 

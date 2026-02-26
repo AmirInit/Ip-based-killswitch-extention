@@ -63,11 +63,12 @@ async function loadSettings() {
 // --- Offscreen Management ---
 
 async function setupOffscreenDocument() {
-  // Only if rules exist
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT']
+  });
+
+  // If active rules exist, we need offscreen
   if (rules.length > 0) {
-      const existingContexts = await chrome.runtime.getContexts({
-        contextTypes: ['OFFSCREEN_DOCUMENT']
-      });
       if (existingContexts.length === 0) {
           try {
             await chrome.offscreen.createDocument({
@@ -75,15 +76,16 @@ async function setupOffscreenDocument() {
               reasons: ['BLOBS'],
               justification: 'High-frequency IP checking for kill switch functionality'
             });
+
+            // Wait for it to be ready then force check
+            setTimeout(() => safeSendMessage({ type: "FORCE_CHECK" }), 500);
+
           } catch (e) {
             console.warn("Offscreen creation warning:", e);
           }
       }
   } else {
       // No rules, close offscreen to save resources
-      const existingContexts = await chrome.runtime.getContexts({
-        contextTypes: ['OFFSCREEN_DOCUMENT']
-      });
       if (existingContexts.length > 0) {
           try {
               await chrome.offscreen.closeDocument();
@@ -93,6 +95,24 @@ async function setupOffscreenDocument() {
       }
   }
 }
+
+// Helper to safely send message without throwing "Receiving end does not exist"
+async function safeSendMessage(message) {
+    // Only try if we have rules (implying offscreen exists)
+    if (rules.length === 0) return;
+
+    try {
+        await chrome.runtime.sendMessage(message);
+    } catch (e) {
+        // Suppress expected error if offscreen is just closing or starting
+        if (e.message.includes("Receiving end does not exist")) {
+            // Ignore
+        } else {
+            console.warn("Message error:", e);
+        }
+    }
+}
+
 
 // --- Message Handling (IP Updates) ---
 
@@ -109,7 +129,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         updateDnrRules();
     }
   } else if (message.type === "CHECK_IP_NOW") {
-    chrome.runtime.sendMessage({ type: "FORCE_CHECK" });
+    safeSendMessage({ type: "FORCE_CHECK" });
     sendResponse({ success: true });
   } else if (message.type === "DIAGNOSE_RULE") {
       diagnoseRule(message.domain).then(sendResponse);
@@ -135,8 +155,12 @@ async function handleIpUpdate(ip, provider, timestamp) {
     });
 
     await updateDnrRules();
+
+    // Auto-reload check? If transitioning from Blocked -> Allowed? Or vice versa?
+    // Hard to track precise state transition per domain here.
+    // But if we went from Unknown -> Known, we might want to reload blocked tabs.
   } else {
-      // Still need to check if we need to recover from expired/unknown state
+      // Lease renewal
       if (currentIp.includes("Unknown")) {
           // Recovery from expired state
           currentIp = newIp;
