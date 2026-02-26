@@ -24,18 +24,21 @@
     <section class="rules-section">
       <h2>Domain Rules</h2>
       <div id="rules-list" class="rules-list">
-        <!-- Rules will be injected here -->
         <div class="empty-state">No rules added yet.</div>
       </div>
 
       <div class="add-rule-form">
+        <h3 id="form-title">Add New Rule</h3>
         <div class="input-group">
           <input type="text" id="domain-input" placeholder="example.com" required>
         </div>
         <div class="input-group">
-          <input type="text" id="ips-input" placeholder="1.2.3.4, 5.6.7.8" required>
+          <input type="text" id="ips-input" placeholder="1.2.3.4, 192.168.1.0/24" required>
         </div>
-        <button id="add-rule-btn" class="action-btn">Add / Update Rule</button>
+        <div class="form-actions">
+            <button id="cancel-edit-btn" class="secondary-btn" style="display:none;">Cancel</button>
+            <button id="add-rule-btn" class="action-btn">Add Rule</button>
+        </div>
       </div>
     </section>
 
@@ -49,7 +52,7 @@
           </div>
 
           <div class="setting-item checkbox">
-            <label for="webrtc-toggle">Disable WebRTC (Leak Protection)</label>
+            <label for="webrtc-toggle">Disable WebRTC</label>
             <input type="checkbox" id="webrtc-toggle" checked>
           </div>
 
@@ -58,7 +61,19 @@
             <input type="checkbox" id="autoclose-toggle">
           </div>
 
+          <div class="setting-item checkbox">
+            <label for="autoreload-toggle">Auto-Reload on Unblock (Coming Soon)</label>
+            <input type="checkbox" id="autoreload-toggle" disabled>
+          </div>
+
           <button id="save-settings-btn" class="secondary-btn">Save Settings</button>
+
+          <div class="import-export">
+              <button id="export-btn" class="secondary-btn small">Export Rules</button>
+              <input type="file" id="import-file" accept=".json" style="display:none">
+              <button id="import-btn" class="secondary-btn small">Import Rules</button>
+          </div>
+
           <button id="clear-all-rules-btn" class="secondary-btn clear-all-btn">Clear All Rules</button>
         </div>
       </details>

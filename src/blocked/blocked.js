@@ -55,11 +55,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   settingsBtn.addEventListener('click', () => {
-    if (chrome.runtime.openOptionsPage) {
-      chrome.runtime.openOptionsPage();
-    } else {
-      window.open(chrome.runtime.getURL('popup/popup.html'));
-    }
+    // Open Popup in a new tab
+    chrome.tabs.create({ url: chrome.runtime.getURL('popup/popup.html') });
   });
 
   // --- Functions ---
