@@ -18,7 +18,8 @@ let settings = {
   ipApiUrl: DEFAULT_IP_API, // kept for manual fallback/settings display
   webRtcDisabled: true,
   autoClose: false,
-  leaseTimeout: DEFAULT_LEASE_TIMEOUT
+  leaseTimeout: DEFAULT_LEASE_TIMEOUT,
+  autoReload: false
 };
 
 // --- Initialization ---
@@ -37,7 +38,7 @@ function initialize() {
   loadSettings().then(async () => {
     // Start lease monitor
     setInterval(checkLease, 1000);
-    // Setup offscreen for IP checking
+    // Setup offscreen for IP checking (if needed)
     await setupOffscreenDocument();
   });
 }
@@ -62,22 +63,34 @@ async function loadSettings() {
 // --- Offscreen Management ---
 
 async function setupOffscreenDocument() {
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT']
-  });
-
-  if (existingContexts.length > 0) {
-    return;
-  }
-
-  try {
-    await chrome.offscreen.createDocument({
-      url: OFFSCREEN_PATH,
-      reasons: ['BLOBS'], // "BLOBS" is a generic reason often used for keep-alive/workers
-      justification: 'High-frequency IP checking for kill switch functionality'
-    });
-  } catch (e) {
-    console.error("Offscreen creation failed:", e);
+  // Only if rules exist
+  if (rules.length > 0) {
+      const existingContexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT']
+      });
+      if (existingContexts.length === 0) {
+          try {
+            await chrome.offscreen.createDocument({
+              url: OFFSCREEN_PATH,
+              reasons: ['BLOBS'],
+              justification: 'High-frequency IP checking for kill switch functionality'
+            });
+          } catch (e) {
+            console.warn("Offscreen creation warning:", e);
+          }
+      }
+  } else {
+      // No rules, close offscreen to save resources
+      const existingContexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT']
+      });
+      if (existingContexts.length > 0) {
+          try {
+              await chrome.offscreen.closeDocument();
+          } catch(e) {
+              // Ignore if already closed
+          }
+      }
   }
 }
 
@@ -88,15 +101,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleIpUpdate(message.ip, message.provider, message.timestamp);
   } else if (message.type === "IP_CHECK_FAILED") {
     console.warn("All IP providers failed!");
-    // Do nothing implies lease will expire naturally
+    // Immediate Fail-Closed
+    lastIpCheckTime = 0; // Invalidate lease
+    if (currentIp !== "Unknown (Check Failed)") {
+        currentIp = "Unknown (Check Failed)";
+        chrome.storage.local.set({ currentIp: currentIp });
+        updateDnrRules();
+    }
   } else if (message.type === "CHECK_IP_NOW") {
-    // Forward to offscreen
     chrome.runtime.sendMessage({ type: "FORCE_CHECK" });
     sendResponse({ success: true });
   } else if (message.type === "DIAGNOSE_RULE") {
-      // Diagnostic check
       diagnoseRule(message.domain).then(sendResponse);
-      return true; // Async
+      return true;
   }
 });
 
@@ -119,30 +136,13 @@ async function handleIpUpdate(ip, provider, timestamp) {
 
     await updateDnrRules();
   } else {
-      // Still need to ensure rules are valid if we were previously expired
-      // E.g. internet back -> lease renewed -> apply allow rules
-      // Optimization: Check if current rules match desired state?
-      // For safety, force update if time since last update > X?
-      // Actually, updateDnrRules() checks lease status.
-      // If we were expired, updateDnrRules() would have removed Allow rules.
-      // Now we are valid, we MUST re-run updateDnrRules() to restore them.
-      // To avoid spamming, we can check if we *need* to restore.
-
-      // But simpler is safer: always update on heartbeat? No, 1s DNR update is heavy.
-      // Better: Check if we are currently "blocked due to expiration" state.
-      // But we don't store that state easily.
-
-      // Let's rely on the checkLease() function to handle EXPIRATION.
-      // And here we handle RESTORATION.
-      // If we are currently "Unknown/Expired", then we MUST update.
-      if (currentIp === "Unknown (Lease Expired)") {
+      // Still need to check if we need to recover from expired/unknown state
+      if (currentIp.includes("Unknown")) {
+          // Recovery from expired state
           currentIp = newIp;
+          await chrome.storage.local.set({ currentIp: currentIp });
           await updateDnrRules();
       }
-
-      // Also, if we just renewed the lease, we should ensure rules are active.
-      // But if they are already active, DNR update is redundant.
-      // Let's assume they are active unless checkLease killed them.
   }
 }
 
@@ -154,7 +154,7 @@ async function checkLease() {
   const isExpired = (now - lastIpCheckTime) > timeout;
 
   // If expired, force update rules to remove Allows
-  if (isExpired && currentIp !== "Unknown (Lease Expired)") {
+  if (isExpired && !currentIp.includes("Unknown")) {
      console.warn("IP Lease Expired! Reverting to Block.");
      currentIp = "Unknown (Lease Expired)"; // Invalidate IP
      await chrome.storage.local.set({ currentIp: currentIp });
@@ -165,8 +165,12 @@ async function checkLease() {
 // --- DNR Rule Management ---
 
 async function updateDnrRules() {
+  // Sync Offscreen lifecycle based on rules count
+  // We can call setupOffscreenDocument safely here as it checks existence
+  setupOffscreenDocument();
+
   const extensionId = chrome.runtime.id;
-  const newRules = []; // Start fresh
+  const newRules = [];
 
   // 1. Panic Mode Rule
   if (panicMode) {
@@ -191,14 +195,19 @@ async function updateDnrRules() {
     domain = domain.replace(/^https?:\/\//, "").replace(/\/.*$/, ""); // Hostname
     if (!domain) return;
 
-    const baseId = index + 1;
-    const allowId = index + 10001;
+    // IDs (offset logic to avoid collision)
+    // baseId: Redirect (Main Frame)
+    // blockId: Block (Everything Else)
+    // allowId: Allow (Everything)
+    const baseId = (index * 10) + 1;
+    const blockId = (index * 10) + 2;
+    const allowId = (index * 10) + 3;
 
-    // A. Base Redirect Rule (Priority 1) - ALWAYS present
-    // Redirects main_frame and sub_frame to blocked page
+    // Regex for domain & subdomains
     const regex = `^https?://([a-z0-9-]+\\.)*${escapeRegex(domain)}(/.*)?$`;
-    const redirectUrl = `chrome-extension://${extensionId}/${BLOCK_PAGE_PATH}?url=\\0`; // Pass original URL
+    const redirectUrl = `chrome-extension://${extensionId}/${BLOCK_PAGE_PATH}?url=\\0`;
 
+    // A. Base Redirect Rule (Priority 1) - Targets main/sub frames to show UI
     newRules.push({
       id: baseId,
       priority: 1,
@@ -212,11 +221,31 @@ async function updateDnrRules() {
       }
     });
 
-    // B. Allow Rule (Priority 2) - Only if IP matches AND lease is valid AND not panic
-    if (!panicMode && isLeaseValid && currentIp && rule.ips && rule.ips.length > 0) {
-       // Check against list
-       const allowedIps = rule.ips.map(i => i.trim());
-       if (allowedIps.includes(currentIp)) {
+    // B. Base Block Rule (Priority 1) - Targets ALL OTHER resources (Silent Fail)
+    // This ensures background requests leak nothing if allow is missing
+    newRules.push({
+      id: blockId,
+      priority: 1,
+      action: { type: "block" },
+      condition: {
+        regexFilter: regex,
+        resourceTypes: ["stylesheet", "script", "image", "font", "object", "xmlhttprequest", "ping", "csp_report", "media", "websocket", "other"]
+      }
+    });
+
+    // C. Allow Rule (Priority 2) - Only if IP matches AND lease is valid AND not panic
+    if (!panicMode && isLeaseValid && currentIp && !currentIp.includes("Unknown") && rule.ips && rule.ips.length > 0) {
+       // Check against list (including CIDR)
+       const isAllowed = rule.ips.some(allowedIp => {
+           const cleanAllowed = allowedIp.trim();
+           if (cleanAllowed.includes("/")) {
+               return ipInCidr(currentIp, cleanAllowed);
+           }
+           return cleanAllowed === currentIp;
+       });
+
+       if (isAllowed) {
+          // Allow EVERYTHING for this domain
           newRules.push({
             id: allowId,
             priority: 2,
@@ -244,6 +273,22 @@ function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// --- CIDR Logic ---
+
+function ipInCidr(ip, cidr) {
+    try {
+        const [range, bits] = cidr.split('/');
+        const mask = ~(2**(32 - bits) - 1);
+        return (ipToLong(ip) & mask) === (ipToLong(range) & mask);
+    } catch(e) {
+        return false;
+    }
+}
+
+function ipToLong(ip) {
+    return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+}
+
 // --- Diagnostics ---
 
 async function diagnoseRule(domain) {
@@ -261,8 +306,18 @@ async function diagnoseRule(domain) {
         allowedIps = rule.ips;
         if (panicMode) status = "BLOCKED (Panic)";
         else if (!isLeaseValid) status = "BLOCKED (Lease Expired)";
-        else if (allowedIps.includes(currentIp)) status = "ALLOWED";
-        else status = "BLOCKED (IP Mismatch)";
+        else {
+             const isAllowed = rule.ips.some(allowedIp => {
+                const cleanAllowed = allowedIp.trim();
+                if (cleanAllowed.includes("/")) {
+                    return ipInCidr(currentIp, cleanAllowed);
+                }
+                return cleanAllowed === currentIp;
+            });
+
+            if (isAllowed) status = "ALLOWED";
+            else status = "BLOCKED (IP Mismatch)";
+        }
     }
 
     return {

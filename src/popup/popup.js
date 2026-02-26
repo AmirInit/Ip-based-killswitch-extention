@@ -6,14 +6,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   const providerDisplay = document.getElementById('current-provider');
   const panicBtn = document.getElementById('panic-btn');
   const rulesList = document.getElementById('rules-list');
+
+  const formTitle = document.getElementById('form-title');
   const addRuleBtn = document.getElementById('add-rule-btn');
+  const cancelEditBtn = document.getElementById('cancel-edit-btn');
   const domainInput = document.getElementById('domain-input');
   const ipsInput = document.getElementById('ips-input');
+
   const leaseTimeoutInput = document.getElementById('lease-timeout');
   const webrtcToggle = document.getElementById('webrtc-toggle');
   const autoCloseToggle = document.getElementById('autoclose-toggle');
+  const autoReloadToggle = document.getElementById('autoreload-toggle');
   const saveSettingsBtn = document.getElementById('save-settings-btn');
   const clearAllRulesBtn = document.getElementById('clear-all-rules-btn');
+
+  const exportBtn = document.getElementById('export-btn');
+  const importBtn = document.getElementById('import-btn');
+  const importFile = document.getElementById('import-file');
 
   // State
   let rules = [];
@@ -22,18 +31,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   let panicMode = false;
   let settings = {};
 
+  // Edit Mode State
+  let isEditing = false;
+  let editIndex = -1;
+
   // Initialize
   await loadData();
   render();
 
   // Listeners
-  addRuleBtn.addEventListener('click', addRule);
+  addRuleBtn.addEventListener('click', handleAddOrUpdateRule);
+  cancelEditBtn.addEventListener('click', cancelEdit);
+
   panicBtn.addEventListener('click', togglePanicMode);
   saveSettingsBtn.addEventListener('click', saveSettings);
   clearAllRulesBtn.addEventListener('click', clearAllRules);
 
+  exportBtn.addEventListener('click', exportRules);
+  importBtn.addEventListener('click', () => importFile.click());
+  importFile.addEventListener('change', importRules);
+
   domainInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') ipsInput.focus(); });
-  ipsInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') addRule(); });
+  ipsInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleAddOrUpdateRule(); });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
@@ -67,9 +86,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     settings = data.settings || {};
 
     // Set settings values
-    if (settings.leaseTimeout) leaseTimeoutInput.value = settings.leaseTimeout / 1000; // ms to seconds
+    if (settings.leaseTimeout) leaseTimeoutInput.value = settings.leaseTimeout / 1000;
     if (settings.webRtcDisabled !== undefined) webrtcToggle.checked = settings.webRtcDisabled;
     if (settings.autoClose !== undefined) autoCloseToggle.checked = settings.autoClose;
+    if (settings.autoReload !== undefined) autoReloadToggle.checked = settings.autoReload;
   }
 
   function render() {
@@ -87,7 +107,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (providerDisplay) {
-        // Just show hostname of provider
         try {
             const url = new URL(currentProvider);
             providerDisplay.textContent = "via " + url.hostname;
@@ -120,6 +139,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     rules.forEach((rule, index) => {
       const card = document.createElement('div');
       card.className = 'rule-card';
+      if (isEditing && editIndex === index) {
+          card.style.opacity = "0.5";
+          card.style.border = "1px dashed #2196f3";
+      }
 
       const info = document.createElement('div');
       info.className = 'rule-info';
@@ -141,7 +164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Test Button
       const testBtn = document.createElement('button');
       testBtn.className = 'icon-btn test-btn';
-      testBtn.innerHTML = '&#128300;'; // Spyglass/Microscope
+      testBtn.innerHTML = '&#128300;'; // Spyglass
       testBtn.title = "Test Rule";
       testBtn.onclick = () => testRule(rule.domain);
 
@@ -150,7 +173,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       editBtn.className = 'icon-btn edit-btn';
       editBtn.innerHTML = '&#9998;'; // Pencil
       editBtn.title = "Edit Rule";
-      editBtn.onclick = () => editRule(index);
+      editBtn.onclick = () => startEditRule(index);
 
       // Delete Button
       const deleteBtn = document.createElement('button');
@@ -170,7 +193,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  async function addRule() {
+  // --- Actions ---
+
+  async function handleAddOrUpdateRule() {
     const domain = domainInput.value.trim();
     const ipsText = ipsInput.value.trim();
 
@@ -186,13 +211,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const ips = ipsText.split(',').map(ip => ip.trim()).filter(ip => ip);
 
-    const newRule = {
-      id: Date.now(),
-      domain: domain,
-      ips: ips
-    };
+    if (isEditing && editIndex >= 0) {
+        // Update
+        rules[editIndex] = {
+            ...rules[editIndex],
+            domain: domain,
+            ips: ips
+        };
+        cancelEdit(); // Reset UI
+    } else {
+        // Add
+        const newRule = {
+          id: Date.now(),
+          domain: domain,
+          ips: ips
+        };
+        rules.push(newRule);
+    }
 
-    rules.push(newRule);
     await saveRules();
 
     domainInput.value = '';
@@ -200,32 +236,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderRules();
   }
 
-  function editRule(index) {
-    const rule = rules[index];
-    domainInput.value = rule.domain;
-    ipsInput.value = rule.ips.join(', ');
+  function startEditRule(index) {
+      isEditing = true;
+      editIndex = index;
 
-    // Remove old rule so "Add" acts as "Update"
-    rules.splice(index, 1);
-    saveRules(); // Temporarily save to reflect removal? Or just let user re-add?
-    // Better UX: keep it if they cancel, but simple MVP: remove it now.
-    // Ideally we'd have an "Update" button state, but for this task, re-populating inputs is fine.
-    // To be safe, let's NOT save the removal until they click Add.
-    // Wait, if they refresh, it's gone. That's risky.
-    // Let's just remove it.
+      const rule = rules[index];
+      domainInput.value = rule.domain;
+      ipsInput.value = rule.ips.join(', ');
+
+      formTitle.textContent = "Edit Rule";
+      addRuleBtn.textContent = "Update Rule";
+      cancelEditBtn.style.display = "inline-block";
+
+      renderRules(); // To show visual highlight
+  }
+
+  function cancelEdit() {
+      isEditing = false;
+      editIndex = -1;
+
+      domainInput.value = '';
+      ipsInput.value = '';
+
+      formTitle.textContent = "Add New Rule";
+      addRuleBtn.textContent = "Add Rule";
+      cancelEditBtn.style.display = "none";
+
+      renderRules();
   }
 
   async function deleteRule(index) {
     if (confirm("Delete this rule?")) {
       rules.splice(index, 1);
+
+      // If we deleted the item being edited, cancel edit
+      if (isEditing && editIndex === index) {
+          cancelEdit();
+      } else if (isEditing && editIndex > index) {
+          editIndex--; // Shift index
+      }
+
       await saveRules();
       renderRules();
     }
   }
 
   async function clearAllRules() {
-    if (confirm("Are you sure you want to delete ALL rules? This cannot be undone.")) {
+    if (confirm("Are you sure you want to delete ALL rules?")) {
       rules = [];
+      cancelEdit();
       await saveRules();
       renderRules();
     }
@@ -259,11 +318,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       leaseTimeout: timeoutSec * 1000,
       webRtcDisabled: webrtcToggle.checked,
       autoClose: autoCloseToggle.checked,
-      // Preserve API URL if it exists in storage but not in UI (removed from UI as requested? No, kept in background but maybe hidden in UI)
-      // UI still has it? Let's check HTML.
+      autoReload: autoReloadToggle.checked
     };
 
-    // Merge with existing settings to keep API URL if we hid the input
     const oldSettings = await chrome.storage.local.get("settings");
     const finalSettings = { ...oldSettings.settings, ...newSettings };
 
@@ -274,5 +331,61 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => {
       saveSettingsBtn.textContent = originalText;
     }, 1500);
+  }
+
+  // --- Import / Export ---
+
+  function exportRules() {
+      const data = {
+          rules: rules,
+          settings: settings,
+          exportedAt: new Date().toISOString()
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+      const url = URL.createObjectURL(blob);
+
+      chrome.tabs.create({ url: url }); // Or use downloads API if permitted, but tabs.create works for data blobs often or just download
+      // Actually, simple way:
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ip-kill-switch-rules.json';
+      a.click();
+  }
+
+  function importRules(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+          try {
+              const data = JSON.parse(event.target.result);
+              if (data.rules && Array.isArray(data.rules)) {
+                  if (confirm(`Import ${data.rules.length} rules? This will MERGE with existing rules.`)) {
+                      // Merge logic: avoid duplicates by domain
+                      const existingDomains = new Set(rules.map(r => r.domain));
+                      let added = 0;
+                      data.rules.forEach(r => {
+                          if (!existingDomains.has(r.domain)) {
+                              rules.push({ ...r, id: Date.now() + Math.random() });
+                              added++;
+                          }
+                      });
+
+                      await saveRules();
+                      renderRules();
+                      alert(`Imported ${added} new rules.`);
+                  }
+              } else {
+                  alert("Invalid format: 'rules' array missing.");
+              }
+          } catch(err) {
+              alert("Error parsing JSON: " + err.message);
+          }
+      };
+      reader.readAsText(file);
+      // Reset input
+      importFile.value = '';
   }
 });
