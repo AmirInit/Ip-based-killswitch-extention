@@ -27,7 +27,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load initial data
   const isAllowedInitially = await checkStatus();
   if (isAllowedInitially && targetUrl) {
-    window.location.href = targetUrl;
+    // Only redirect if valid HTTP/HTTPS URL
+    if (targetUrl.startsWith('http')) {
+        window.location.href = targetUrl;
+    }
     return;
   }
 

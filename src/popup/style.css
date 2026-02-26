@@ -63,6 +63,12 @@ h1 {
   font-size: 16px;
 }
 
+.provider-info {
+  font-size: 10px;
+  color: #666;
+  font-style: italic;
+}
+
 /* Panic Button */
 .panic-section {
   display: flex;
@@ -130,6 +136,7 @@ h1 {
   flex-direction: column;
   gap: 4px;
   overflow: hidden;
+  max-width: 70%;
 }
 
 .rule-domain {
@@ -146,18 +153,28 @@ h1 {
   font-family: monospace;
 }
 
-.delete-btn {
+.rule-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.icon-btn {
   background: none;
   border: none;
-  color: #f44336;
+  color: #aaa;
   cursor: pointer;
   padding: 4px;
-  font-size: 16px;
+  font-size: 14px;
   opacity: 0.7;
 }
 
-.delete-btn:hover {
+.icon-btn:hover {
   opacity: 1;
+  color: #fff;
+}
+
+.delete-btn:hover {
+  color: #f44336;
 }
 
 .empty-state {
@@ -241,13 +258,14 @@ summary {
   color: #ccc;
 }
 
-.setting-item input[type="text"] {
+.setting-item input[type="text"], .setting-item input[type="number"] {
   padding: 6px;
   background-color: #2d2d2d;
   border: 1px solid #333;
   border-radius: 4px;
   color: #fff;
   font-size: 12px;
+  width: 100%;
 }
 
 .secondary-btn {
@@ -263,6 +281,17 @@ summary {
 
 .secondary-btn:hover {
   background-color: #555;
+}
+
+.clear-all-btn {
+    background-color: #333;
+    color: #f44336;
+    border: 1px solid #f44336;
+}
+
+.clear-all-btn:hover {
+    background-color: #f44336;
+    color: white;
 }
 
 /* Scrollbar */

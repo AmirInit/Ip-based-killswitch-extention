@@ -13,6 +13,7 @@
       <div id="ip-status" class="ip-status loading">
         <span class="label">Current IP</span>
         <span class="value" id="current-ip">Checking...</span>
+        <span class="provider-info" id="current-provider"></span>
       </div>
     </header>
 
@@ -34,7 +35,7 @@
         <div class="input-group">
           <input type="text" id="ips-input" placeholder="1.2.3.4, 5.6.7.8" required>
         </div>
-        <button id="add-rule-btn" class="action-btn">Add Rule</button>
+        <button id="add-rule-btn" class="action-btn">Add / Update Rule</button>
       </div>
     </section>
 
@@ -43,8 +44,8 @@
         <summary>Advanced Settings</summary>
         <div class="settings-content">
           <div class="setting-item">
-            <label for="api-url">IP Detection API</label>
-            <input type="text" id="api-url" value="https://api.ipify.org?format=json">
+            <label for="lease-timeout">Fail-Closed Timeout (Seconds)</label>
+            <input type="number" id="lease-timeout" value="5" min="2" max="60">
           </div>
 
           <div class="setting-item checkbox">
@@ -58,6 +59,7 @@
           </div>
 
           <button id="save-settings-btn" class="secondary-btn">Save Settings</button>
+          <button id="clear-all-rules-btn" class="secondary-btn clear-all-btn">Clear All Rules</button>
         </div>
       </details>
     </section>
