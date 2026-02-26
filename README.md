@@ -1,37 +1,36 @@
 # IP Kill Switch - Multi-IP Support (Manifest V3)
 
-A privacy-focused Chrome Extension that enforces strict IP-based access control for specific domains. It features multi-IP whitelisting, strict leak prevention (block by default), WebRTC protection, and a Panic Mode.
+A robust, fail-closed privacy tool for Chrome that whitelists specific IPs for sensitive domains.
 
 ## Features
 
-- **Multi-IP Support:** Whitelist multiple IPs per domain.
-- **Strict Leak Prevention:** Blocks target domains by default until your IP is verified.
-- **Panic Mode:** Instantly blocks all internet access.
-- **WebRTC Protection:** Disables WebRTC leaks by default.
-- **Custom Block Page:** Clean, dark-themed page showing connection details.
-- **Configurable:** Change IP detection API, toggle settings.
+- **Strict Leak Prevention:** Uses `declarativeNetRequest` to BLOCK/REDIRECT by default.
+- **Fail-Closed Lease:** If IP detection fails or hangs for >5 seconds, all rules revert to BLOCK.
+- **High-Frequency Checks:** Checks IP every ~1s using an Offscreen Document.
+- **Multi-Provider Failover:** Rotates between 6+ IP providers (ipify, ifconfig, etc.) to avoid outages.
+- **Multi-IP Support:** Whitelist multiple comma-separated IPs per domain.
+- **Panic Mode:** Instantly severs all internet access.
 
-## Installation Instructions
+## Installation
 
-1.  **Download/Clone** this repository.
-2.  Open Chrome and navigate to `chrome://extensions`.
-3.  Enable **Developer Mode** (toggle in the top right corner).
+1.  **Clone/Download** this repository.
+2.  Open Chrome → `chrome://extensions`.
+3.  Enable **Developer Mode**.
 4.  Click **Load Unpacked**.
-5.  Select the `src` folder from this project.
-6.  The extension is now active.
+5.  Select the `src` folder.
 
 ## Usage
 
-1.  Click the extension icon to open the popup.
-2.  **Add Rule:** Enter a domain (e.g., `example.com`) and allowed IPs (e.g., `1.2.3.4, 5.6.7.8`).
-3.  **Status:** The popup shows your current detected IP.
-4.  **Verification:** Visit the domain.
-    -   If your IP matches, the site loads.
-    -   If not, you see the Blocked Page.
-5.  **Panic Mode:** Click the "PANIC MODE" button to block all traffic immediately.
+1.  **Add Rules:**
+    -   Enter `example.com` and `1.2.3.4, 5.6.7.8`.
+    -   Click "Add Rule".
+2.  **Verify:**
+    -   Popup shows "Current IP" in Green.
+    -   Visit `example.com`.
+3.  **Panic Mode:**
+    -   Click "PANIC MODE" in popup to kill all connections immediately.
 
-## Configuration
+## Configuration (Advanced)
 
--   **IP Detection API:** Defaults to `https://api.ipify.org`. You can change this in the "Advanced Settings" section of the popup.
--   **WebRTC:** Enabled by default (Disable WebRTC). Can be toggled in settings.
--   **Auto-Close:** Automatically close tabs that are blocked (Settings).
+-   **Lease Timeout:** How long an IP check is valid. Default 5s. Lower = stricter but more sensitive to network blips.
+-   **WebRTC:** Disabled by default to prevent leaks.
