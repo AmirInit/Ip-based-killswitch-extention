@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP Kill Switch</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>IP Kill Switch</h1>
+      <div id="ip-status" class="ip-status loading">
+        <span class="label">Current IP</span>
+        <span class="value" id="current-ip">Checking...</span>
+        <span class="provider-info" id="current-provider"></span>
+      </div>
+    </header>
+
+    <div class="panic-section">
+      <button id="panic-btn" class="panic-btn">PANIC MODE: OFF</button>
+    </div>
+
+    <section class="rules-section">
+      <h2>Domain Rules</h2>
+      <div id="rules-list" class="rules-list">
+        <div class="empty-state">No rules added yet.</div>
+      </div>
+
+      <div class="add-rule-form">
+        <h3 id="form-title">Add New Rule</h3>
+        <div class="input-group">
+          <input type="text" id="domain-input" placeholder="example.com" required>
+        </div>
+        <div class="input-group">
+          <input type="text" id="ips-input" placeholder="1.2.3.4, 192.168.1.0/24" required>
+        </div>
+        <div class="form-actions">
+            <button id="cancel-edit-btn" class="secondary-btn" style="display:none;">Cancel</button>
+            <button id="add-rule-btn" class="action-btn">Add Rule</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <details>
+        <summary>Advanced Settings</summary>
+        <div class="settings-content">
+          <div class="setting-item">
+            <label for="lease-timeout">Fail-Closed Timeout (Seconds)</label>
+            <input type="number" id="lease-timeout" value="5" min="2" max="60">
+          </div>
+
+          <div class="setting-item checkbox">
+            <label for="webrtc-toggle">Disable WebRTC</label>
+            <input type="checkbox" id="webrtc-toggle" checked>
+          </div>
+
+          <div class="setting-item checkbox">
+            <label for="autoclose-toggle">Auto-Close Tab on Block</label>
+            <input type="checkbox" id="autoclose-toggle">
+          </div>
+
+          <div class="setting-item checkbox">
+            <label for="autoreload-toggle">Auto-Reload on Unblock (Coming Soon)</label>
+            <input type="checkbox" id="autoreload-toggle" disabled>
+          </div>
+
+          <button id="save-settings-btn" class="secondary-btn">Save Settings</button>
+
+          <div class="import-export">
+              <button id="export-btn" class="secondary-btn small">Export Rules</button>
+              <input type="file" id="import-file" accept=".json" style="display:none">
+              <button id="import-btn" class="secondary-btn small">Import Rules</button>
+          </div>
+
+          <button id="clear-all-rules-btn" class="secondary-btn clear-all-btn">Clear All Rules</button>
+        </div>
+      </details>
+    </section>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
