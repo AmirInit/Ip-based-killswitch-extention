@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "IP Kill Switch - Multi-IP Support",
+  "version": "1.4",
+  "description": "Advanced IP-based website blocker with multi-IP support and strict leak prevention.",
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+    "alarms",
+    "privacy",
+    "tabs",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked/blocked.html", "blocked/style.css", "blocked/blocked.js", "assets/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
