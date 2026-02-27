@@ -27,8 +27,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load initial data
   const isAllowedInitially = await checkStatus();
   if (isAllowedInitially && targetUrl) {
-    // Only redirect if valid HTTP/HTTPS URL
-    if (targetUrl.startsWith('http')) {
+    // Only redirect if valid HTTP/HTTPS/WSS URL
+    if (targetUrl.startsWith('http') || targetUrl.startsWith('ws')) {
         window.location.href = targetUrl;
     }
     return;
@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', async () => {
              if (autoReload) {
                  // Check if we are now allowed
                  checkStatus().then(allowed => {
-                     if (allowed && targetUrl && targetUrl.startsWith('http')) {
+                     if (allowed && targetUrl && (targetUrl.startsWith('http') || targetUrl.startsWith('ws'))) {
                          console.log("Auto-Reloading...");
                          window.location.href = targetUrl;
                      }
@@ -112,10 +112,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     if (applicableRule) {
-      allowedIpsEl.textContent = applicableRule.ips.join(", ");
+      // Ensure ips is an array
+      const ruleIps = Array.isArray(applicableRule.ips) ? applicableRule.ips : [];
+      allowedIpsEl.textContent = ruleIps.join(", ");
 
       // Check if NOW allowed
-      const isAllowed = applicableRule.ips.some(allowedIp => {
+      const isAllowed = ruleIps.some(allowedIp => {
            const cleanAllowed = allowedIp.trim();
            if (cleanAllowed.includes("/")) {
                return ipInCidr(currentIp, cleanAllowed);
@@ -134,11 +136,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     return false;
   }
 
-  // Duplicated CIDR Logic (should be shared but importing modules in vanilla JS extension is tricky without build step)
-  // Simple enough to copy for now.
+  // Duplicated CIDR Logic
   function ipInCidr(ip, cidr) {
+    if (!ip || !cidr) return false;
+    const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+    if (!ipRegex.test(ip)) return false;
+
     try {
-        const [range, bits] = cidr.split('/');
+        const parts = cidr.split('/');
+        if (parts.length !== 2) return false;
+
+        const range = parts[0];
+        const bits = parseInt(parts[1], 10);
+
+        if (isNaN(bits) || bits < 0 || bits > 32) return false;
+        if (!ipRegex.test(range)) return false;
+
         const mask = ~(2**(32 - bits) - 1);
         return (ipToLong(ip) & mask) === (ipToLong(range) & mask);
     } catch(e) {

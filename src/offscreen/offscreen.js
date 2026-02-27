@@ -1,13 +1,13 @@
 // src/offscreen/offscreen.js
 
 const PROVIDERS = [
-  // Tier 1: Primary (Unlimited/High Limit)
+  // Tier 1: Primary (Unlimited/High Limit) - Safe for 1s cadence
   { url: "https://api.ipify.org?format=json", tier: 1 },
   { url: "https://api64.ipify.org?format=json", tier: 1 },
   // Tier 2: Fallback (Unknown Limits, use with caution/backoff)
   { url: "https://checkip.amazonaws.com/", tier: 2 },
   { url: "https://ident.me/", tier: 2 },
-  // Tier 3: Manual Only (Strict Limits)
+  // Tier 3: Manual Only (Strict Limits) - Never use in auto heartbeat
   { url: "https://ifconfig.co/ip", tier: 3 },
   { url: "https://ipinfo.io/ip", tier: 3 }
 ];
@@ -66,14 +66,14 @@ async function checkIpLoop(force = false) {
 }
 
 // Start immediately
-checkIpLoop(true);
+checkIpLoop(false);
 
 // --- IP Fetching Logic ---
 
 async function fetchIpWithStrategy(force) {
   const now = Date.now();
 
-  // Define allowed tiers
+  // Define allowed tiers: Tier 3 is ONLY allowed if 'force' is true
   const allowedTiers = force ? [1, 2, 3] : [1, 2];
 
   // Filter providers
@@ -83,8 +83,7 @@ async function fetchIpWithStrategy(force) {
   candidates = candidates.filter(p => {
       const h = providerHealth[p.url];
       if (!h) return true;
-      // Allow retry if cooldown expired OR force mode (ignore cooldown?)
-      // Safer to respect cooldown unless FORCE
+      // Allow retry if cooldown expired OR force mode
       if (force) return true;
       return now > (h.cooldownUntil || 0);
   });
@@ -108,7 +107,6 @@ async function fetchIpWithStrategy(force) {
   if (force && candidates.length >= 2) {
       try {
           const raceCandidates = candidates.slice(0, 2);
-          // Only fetch if no recent success? Force implies fresh check.
           const promises = raceCandidates.map(p =>
               fetchIpWithTimeout(p.url).then(ip => ({ip, provider: p.url}))
           );

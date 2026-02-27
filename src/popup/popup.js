@@ -242,10 +242,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const domains = domainText.split(',').map(d => d.trim()).filter(d => d);
 
         domains.forEach(domain => {
-            // Deduplicate? Check if domain exists?
-            // Simple: Just push. Background handles duplication if keyed by domain,
-            // but here we rely on list. UI shows duplicates.
-            // Better: Check if exists.
             const existing = rules.findIndex(r => r.domain === domain);
             if (existing >= 0) {
                 // Update existing
@@ -403,12 +399,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                               rules.push(r);
                               added++;
                           } else {
-                              // Optional: Overwrite IPs? Or skip?
-                              // For safety, let's update existing to match import
+                              // Update existing to match import
                               const existingIdx = rules.findIndex(ex => ex.domain === r.domain);
                               if (existingIdx >= 0) {
                                   rules[existingIdx].ips = r.ips;
-                                  added++; // Count as updated
+                                  added++;
                               }
                           }
                       });

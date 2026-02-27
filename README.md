@@ -8,7 +8,11 @@ A robust, fail-closed privacy tool for Chrome that whitelists specific IPs for s
 - **Fail-Closed Lease:** If IP detection fails or hangs for >5 seconds, all rules revert to BLOCK.
 - **High-Frequency Checks:** Checks IP every ~1s using an Offscreen Document.
 - **Multi-Provider Failover:** Tiered provider strategy to ensure uptime without hitting rate limits.
+  - *Tier 1 (Primary):* ipify (Unlimited, safe for 1s cadence).
+  - *Tier 2 (Fallback):* AWS checkip, ident.me (Used with backoff if Tier 1 fails).
+  - *Tier 3 (Manual):* ifconfig.co, ipinfo.io (Strictly manual-only to avoid rate limits).
 - **Multi-IP Support:** Whitelist multiple comma-separated IPs per domain.
+- **Multi-Domain Support:** Apply rules to multiple domains at once (e.g., `example.com, chatgpt.com`).
 - **CIDR Support:** Whitelist IPv4 ranges (e.g., `192.168.1.0/24`).
 - **Panic Mode:** Instantly severs all internet access.
 - **Auto-Reload:** Automatically retries blocked tabs when your IP becomes valid (configurable).
@@ -38,12 +42,7 @@ A robust, fail-closed privacy tool for Chrome that whitelists specific IPs for s
 
 ## Configuration (Advanced)
 
--   **Lease Timeout:** How long an IP check is valid. Default 5s. Lower = stricter but more sensitive to network blips.
+-   **Lease Timeout:** How long an IP check is valid. Default 5s.
 -   **WebRTC:** Disabled by default to prevent leaks.
 -   **Auto-Close:** Automatically close tabs that are blocked.
 -   **Auto-Reload:** Automatically retry when unblocked.
-
-## Troubleshooting
-
--   **"Extension failed to load":** Ensure you are loading the `src` folder, not the root.
--   **"Blocked" page keeps showing:** Check your IP. Click "Test Rule" in the popup to see why.

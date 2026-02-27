@@ -13,9 +13,9 @@ let currentIp = "Unknown";
 let currentProvider = "Unknown";
 let lastIpCheckTime = 0;
 let panicMode = false;
-let rules = []; // { id: number (legacy), domain: string, ips: string[] }
+let rules = []; // { id: number, domain: string, ips: string[] }
 let settings = {
-  ipApiUrl: DEFAULT_IP_API, // kept for manual fallback/settings display
+  ipApiUrl: DEFAULT_IP_API,
   webRtcDisabled: true,
   autoClose: false,
   leaseTimeout: DEFAULT_LEASE_TIMEOUT,
@@ -49,18 +49,13 @@ function initialize() {
 async function loadSettings() {
   const data = await chrome.storage.local.get(["rules", "settings", "panicMode"]);
   rules = data.rules || [];
-  // Basic normalization
+  // Schema Normalization
   rules = rules.map(r => ({ ...r, ips: Array.isArray(r.ips) ? r.ips : [] }));
 
   settings = { ...settings, ...data.settings };
   panicMode = data.panicMode || false;
 
   applyWebRtcSetting();
-
-  // Note: We do NOT load cached IP initially for safety.
-  // We wait for a fresh check from Offscreen.
-  // Until then, lastIpCheckTime is 0, so lease is expired -> BLOCK state.
-
   await updateDnrRules();
 }
 
@@ -106,7 +101,7 @@ async function safeSendMessage(message) {
     try {
         await chrome.runtime.sendMessage(message);
     } catch (e) {
-        // Suppress expected error
+        // Suppress expected error "Receiving end does not exist"
     }
 }
 
@@ -215,8 +210,8 @@ async function updateDnrRules() {
     const blockId = (index * 10) + 2;
     const allowId = (index * 10) + 3;
 
-    // Regex for domain & subdomains
-    const regex = `^https?://([a-z0-9-]+\\.)*${escapeRegex(domain)}(/.*)?$`;
+    // Regex for domain & subdomains (Hardened for websocket schemes too)
+    const regex = `^(https?|wss?)://([a-z0-9-]+\\.)*${escapeRegex(domain)}(/.*)?$`;
     const redirectUrl = `chrome-extension://${extensionId}/${BLOCK_PAGE_PATH}?url=\\0`;
 
     // A. Base Redirect Rule (Priority 1) - Targets main/sub frames to show UI
@@ -293,7 +288,7 @@ function setDynamicIcon() {
         // Background
         ctx.fillStyle = '#1e1e1e';
         ctx.beginPath();
-        ctx.roundRect(0, 0, 48, 48, 8); // 8px radius
+        ctx.roundRect(0, 0, 48, 48, 8);
         ctx.fill();
 
         // Text
@@ -306,23 +301,20 @@ function setDynamicIcon() {
         const imageData = ctx.getImageData(0, 0, 48, 48);
         chrome.action.setIcon({ imageData: imageData }, () => {
             if (chrome.runtime.lastError) {
-                console.warn("Failed to set dynamic icon:", chrome.runtime.lastError);
+                // Ignore
             }
         });
     } catch(e) {
-        console.warn("OffscreenCanvas not supported for dynamic icon:", e);
+        // OffscreenCanvas not supported (older browsers)
     }
 }
-
 
 // --- CIDR Logic (Hardened) ---
 
 function ipInCidr(ip, cidr) {
     if (!ip || !cidr) return false;
-
-    // Validate IPv4 format first
     const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
-    if (!ipRegex.test(ip)) return false; // Ignore IPv6 for now
+    if (!ipRegex.test(ip)) return false;
 
     try {
         const parts = cidr.split('/');
