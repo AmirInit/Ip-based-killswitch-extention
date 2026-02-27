@@ -1,17 +1,24 @@
 // src/offscreen/offscreen.js
 
-const PROVIDERS = [
+const PROVIDERS_TIER_1 = [
   "https://api.ipify.org?format=json",
-  "https://api64.ipify.org?format=json",
-  "https://ifconfig.co/ip",
-  "https://icanhazip.com/",
+  "https://api64.ipify.org?format=json"
+];
+
+const PROVIDERS_TIER_2 = [
   "https://checkip.amazonaws.com/",
+  "https://ident.me.json/" // fallback only
+];
+
+const PROVIDERS_TIER_3 = [
+  "https://ifconfig.co/ip",
   "https://ipinfo.io/ip"
 ];
 
 // Configuration
 const CHECK_INTERVAL = 1000;
-const TIMEOUT_MS = 2000;
+const TIMEOUT_MS = 1500;
+const TIER_2_MIN_INTERVAL = 5000; // minimum time between tier 2 attempts
 
 // State
 let isChecking = false;
@@ -39,7 +46,7 @@ async function checkIpLoop(force = false) {
   isChecking = true;
 
   try {
-    const result = await fetchIpWithFailover();
+    const result = await fetchIpWithFailover(force);
     if (result) {
       chrome.runtime.sendMessage({
         type: "IP_UPDATE",
@@ -68,33 +75,76 @@ checkIpLoop(true);
 
 // --- IP Fetching Logic ---
 
-async function fetchIpWithFailover() {
-  const sortedProviders = [...PROVIDERS].sort((a, b) => {
-    const healthA = providerHealth[a] || { failures: 0, lastSuccess: 0 };
-    const healthB = providerHealth[b] || { failures: 0, lastSuccess: 0 };
+async function fetchIpWithFailover(force) {
+  const now = Date.now();
 
-    // Primary: Failures (asc)
-    if (healthA.failures !== healthB.failures) {
-      return healthA.failures - healthB.failures;
+  // Initialize health if needed
+  [...PROVIDERS_TIER_1, ...PROVIDERS_TIER_2, ...PROVIDERS_TIER_3].forEach(url => {
+    if (!providerHealth[url]) {
+      providerHealth[url] = { failures: 0, lastSuccess: 0, cooldownUntil: 0 };
     }
-    // Secondary: Recency (desc)
-    return healthB.lastSuccess - healthA.lastSuccess;
   });
 
-  for (const url of sortedProviders) {
+  // Force Check: Parallel Tier 1 Optimization
+  if (force) {
+    try {
+      // Query both Tier 1 simultaneously
+      const tier1Promises = PROVIDERS_TIER_1.map(url => fetchIpWithTimeout(url).then(ip => ({ ip, url })));
+      // Promise.any resolves with the first successful
+      const winner = await Promise.any(tier1Promises);
+
+      providerHealth[winner.url].failures = 0;
+      providerHealth[winner.url].lastSuccess = now;
+      return { ip: winner.ip, provider: winner.url };
+    } catch (e) {
+      // Both Tier 1 failed
+      PROVIDERS_TIER_1.forEach(url => providerHealth[url].failures++);
+    }
+  }
+
+  // Define providers to try sequentially based on mode
+  let sequence = [];
+
+  if (!force) {
+      // Heartbeat: Tier 1 then Tier 2
+      sequence = [...PROVIDERS_TIER_1, ...PROVIDERS_TIER_2];
+  } else {
+      // Force fallback (Tier 1 already failed): Tier 2 then Tier 3
+      sequence = [...PROVIDERS_TIER_2, ...PROVIDERS_TIER_3];
+  }
+
+  // Sort the sequence primarily by health
+  sequence.sort((a, b) => {
+    return providerHealth[a].failures - providerHealth[b].failures;
+  });
+
+  for (const url of sequence) {
+    // Apply Tier 2 cooldowns (except in force mode)
+    if (!force && PROVIDERS_TIER_2.includes(url)) {
+       if (now < providerHealth[url].cooldownUntil) {
+           continue; // Skip this provider
+       }
+    }
+
     try {
       const ip = await fetchIpWithTimeout(url);
       if (ip) {
-        if (!providerHealth[url]) providerHealth[url] = { failures: 0, lastSuccess: 0 };
         providerHealth[url].failures = 0;
-        providerHealth[url].lastSuccess = Date.now();
+        providerHealth[url].lastSuccess = now;
         return { ip, provider: url };
       }
     } catch (e) {
-      if (!providerHealth[url]) providerHealth[url] = { failures: 0, lastSuccess: 0 };
       providerHealth[url].failures++;
+
+      // If Tier 2 fails, set cooldown
+      if (PROVIDERS_TIER_2.includes(url)) {
+          // exponential backoff
+          const backoff = TIER_2_MIN_INTERVAL * Math.pow(2, providerHealth[url].failures - 1);
+          providerHealth[url].cooldownUntil = now + Math.min(backoff, 60000); // max 60s
+      }
     }
   }
+
   return null;
 }
 

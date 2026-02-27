@@ -69,7 +69,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updatePanicButton();
       }
       if (changes.rules) {
-        rules = changes.rules.newValue;
+        rules = normalizeRules(changes.rules.newValue);
         renderRules();
       }
     }
@@ -77,9 +77,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Functions ---
 
+  function normalizeRules(rawRules) {
+    if (!Array.isArray(rawRules)) return [];
+    return rawRules.map(r => ({
+      id: r.id || Date.now() + Math.random(),
+      domain: typeof r.domain === 'string' ? r.domain : '',
+      ips: Array.isArray(r.ips) ? r.ips : []
+    }));
+  }
+
   async function loadData() {
     const data = await chrome.storage.local.get(['rules', 'currentIp', 'currentProvider', 'panicMode', 'settings']);
-    rules = data.rules || [];
+    rules = normalizeRules(data.rules || []);
     currentIp = data.currentIp || "Unknown";
     currentProvider = data.currentProvider || "Unknown";
     panicMode = data.panicMode || false;
@@ -153,7 +162,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const ips = document.createElement('div');
       ips.className = 'rule-ips';
-      ips.textContent = rule.ips.join(', ');
+      ips.textContent = Array.isArray(rule.ips) ? rule.ips.join(', ') : '';
 
       info.appendChild(domain);
       info.appendChild(ips);
@@ -196,10 +205,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Actions ---
 
   async function handleAddOrUpdateRule() {
-    const domain = domainInput.value.trim();
+    const domainInputVal = domainInput.value.trim();
     const ipsText = ipsInput.value.trim();
 
-    if (!domain) {
+    if (!domainInputVal) {
       alert("Please enter a domain.");
       return;
     }
@@ -211,22 +220,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const ips = ipsText.split(',').map(ip => ip.trim()).filter(ip => ip);
 
+    // Multi-domain input normalization
+    const domains = domainInputVal.split(',').map(d => {
+       let normalized = d.trim();
+       // strip scheme/path
+       normalized = normalized.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+       return normalized;
+    }).filter(d => d);
+
+    // Dedupe
+    const uniqueDomains = [...new Set(domains)];
+
     if (isEditing && editIndex >= 0) {
-        // Update
+        // When editing, we overwrite the specific rule we selected.
         rules[editIndex] = {
             ...rules[editIndex],
-            domain: domain,
+            domain: uniqueDomains[0],
             ips: ips
         };
+
+        // If they changed a single domain to a list during edit, append the rest
+        for (let i = 1; i < uniqueDomains.length; i++) {
+           upsertRule(uniqueDomains[i], ips);
+        }
+
         cancelEdit(); // Reset UI
     } else {
-        // Add
-        const newRule = {
-          id: Date.now(),
-          domain: domain,
-          ips: ips
-        };
-        rules.push(newRule);
+        // Add/Upsert
+        for (const domain of uniqueDomains) {
+            upsertRule(domain, ips);
+        }
     }
 
     await saveRules();
@@ -236,13 +259,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderRules();
   }
 
+  function upsertRule(domain, ips) {
+     const existingIndex = rules.findIndex(r => r.domain === domain);
+     if (existingIndex >= 0) {
+         rules[existingIndex].ips = ips;
+     } else {
+         rules.push({
+             id: Date.now() + Math.random(),
+             domain: domain,
+             ips: ips
+         });
+     }
+  }
+
   function startEditRule(index) {
       isEditing = true;
       editIndex = index;
 
       const rule = rules[index];
       domainInput.value = rule.domain;
-      ipsInput.value = rule.ips.join(', ');
+      ipsInput.value = Array.isArray(rule.ips) ? rule.ips.join(', ') : '';
 
       formTitle.textContent = "Edit Rule";
       addRuleBtn.textContent = "Update Rule";
@@ -293,12 +329,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function testRule(domain) {
      const response = await chrome.runtime.sendMessage({ type: "DIAGNOSE_RULE", domain: domain });
      if (response) {
+         const allowedIpsDisplay = Array.isArray(response.allowedIps) ? response.allowedIps.join(", ") : '';
          alert(`Diagnostic for ${response.domain}:\n\n` +
                `Current IP: ${response.currentIp}\n` +
                `Provider: ${response.provider}\n` +
                `Lease Remaining: ${Math.round(response.leaseRemaining/1000)}s\n` +
                `Rule Status: ${response.status}\n` +
-               `Allowed IPs: ${response.allowedIps.join(", ")}`);
+               `Allowed IPs: ${allowedIpsDisplay}`);
      }
   }
 
@@ -362,11 +399,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           try {
               const data = JSON.parse(event.target.result);
               if (data.rules && Array.isArray(data.rules)) {
-                  if (confirm(`Import ${data.rules.length} rules? This will MERGE with existing rules.`)) {
+                  const normalizedNewRules = normalizeRules(data.rules);
+                  if (confirm(`Import ${normalizedNewRules.length} rules? This will MERGE with existing rules.`)) {
                       // Merge logic: avoid duplicates by domain
                       const existingDomains = new Set(rules.map(r => r.domain));
                       let added = 0;
-                      data.rules.forEach(r => {
+                      normalizedNewRules.forEach(r => {
                           if (!existingDomains.has(r.domain)) {
                               rules.push({ ...r, id: Date.now() + Math.random() });
                               added++;

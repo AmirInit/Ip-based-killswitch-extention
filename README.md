@@ -25,7 +25,7 @@ A robust, fail-closed privacy tool for Chrome that whitelists specific IPs for s
 ## Usage
 
 1.  **Add Rules:**
-    -   Enter `example.com`.
+    -   Enter `example.com, chatgpt.com`.
     -   Enter IPs: `1.2.3.4, 10.0.0.0/24`.
     -   Click "Add Rule".
 2.  **Verify:**
