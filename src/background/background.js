@@ -22,6 +22,25 @@ let settings = {
   autoReload: false
 };
 
+function normalizeDomain(domain) {
+  if (typeof domain !== "string") return "";
+  return domain.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase();
+}
+
+function normalizeRule(rawRule, index = 0) {
+  const domain = normalizeDomain(rawRule?.domain || "");
+  const ips = Array.isArray(rawRule?.ips)
+    ? rawRule.ips.map(ip => (typeof ip === "string" ? ip.trim() : "")).filter(Boolean)
+    : [];
+  const id = Number.isInteger(rawRule?.id) ? rawRule.id : (Date.now() + index);
+  return { id, domain, ips };
+}
+
+function normalizeRulesArray(input) {
+  if (!Array.isArray(input)) return [];
+  return input.map((rule, index) => normalizeRule(rule, index)).filter(rule => rule.domain);
+}
+
 // --- Initialization ---
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -35,6 +54,7 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 function initialize() {
+  applyRuntimeActionIcon();
   loadSettings().then(async () => {
     // Start lease monitor
     setInterval(checkLease, 1000);
@@ -47,9 +67,13 @@ function initialize() {
 
 async function loadSettings() {
   const data = await chrome.storage.local.get(["rules", "settings", "panicMode"]);
-  rules = data.rules || [];
+  rules = normalizeRulesArray(data.rules || []);
   settings = { ...settings, ...data.settings };
   panicMode = data.panicMode || false;
+
+  if (JSON.stringify(rules) !== JSON.stringify(data.rules || [])) {
+    await chrome.storage.local.set({ rules });
+  }
 
   applyWebRtcSetting();
 
@@ -78,7 +102,7 @@ async function setupOffscreenDocument() {
             });
 
             // Wait for it to be ready then force check
-            setTimeout(() => safeSendMessage({ type: "FORCE_CHECK" }), 500);
+            setTimeout(() => safeSendMessage({ type: "FORCE_CHECK", reason: "warmup" }), 500);
 
           } catch (e) {
             console.warn("Offscreen creation warning:", e);
@@ -129,7 +153,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         updateDnrRules();
     }
   } else if (message.type === "CHECK_IP_NOW") {
-    safeSendMessage({ type: "FORCE_CHECK" });
+    safeSendMessage({ type: "FORCE_CHECK", reason: "manual" });
     sendResponse({ success: true });
   } else if (message.type === "DIAGNOSE_RULE") {
       diagnoseRule(message.domain).then(sendResponse);
@@ -145,6 +169,7 @@ async function handleIpUpdate(ip, provider, timestamp) {
   const newIp = ip.trim();
 
   if (currentIp !== newIp) {
+    const beforeAllowedDomains = getCurrentlyAllowedDomains();
     console.log(`IP Changed: ${currentIp} -> ${newIp} (via ${provider})`);
     currentIp = newIp;
 
@@ -155,6 +180,7 @@ async function handleIpUpdate(ip, provider, timestamp) {
     });
 
     await updateDnrRules();
+    await maybeReloadBlockedTabs(beforeAllowedDomains);
 
     // Auto-reload check? If transitioning from Blocked -> Allowed? Or vice versa?
     // Hard to track precise state transition per domain here.
@@ -215,8 +241,7 @@ async function updateDnrRules() {
   rules.forEach((rule, index) => {
     if (!rule.domain) return;
 
-    let domain = rule.domain.trim();
-    domain = domain.replace(/^https?:\/\//, "").replace(/\/.*$/, ""); // Hostname
+    const domain = normalizeDomain(rule.domain);
     if (!domain) return;
 
     // IDs (offset logic to avoid collision)
@@ -300,17 +325,61 @@ function escapeRegex(string) {
 // --- CIDR Logic ---
 
 function ipInCidr(ip, cidr) {
-    try {
-        const [range, bits] = cidr.split('/');
-        const mask = ~(2**(32 - bits) - 1);
-        return (ipToLong(ip) & mask) === (ipToLong(range) & mask);
-    } catch(e) {
-        return false;
-    }
+    if (!isValidIpv4(ip) || typeof cidr !== "string") return false;
+    const [range, bitsRaw] = cidr.split('/');
+    if (!isValidIpv4(range) || bitsRaw === undefined || !/^\d+$/.test(bitsRaw)) return false;
+    const bits = Number(bitsRaw);
+    if (bits < 0 || bits > 32) return false;
+    const mask = bits === 0 ? 0 : ((0xFFFFFFFF << (32 - bits)) >>> 0);
+    return (ipToLong(ip) & mask) === (ipToLong(range) & mask);
 }
 
 function ipToLong(ip) {
     return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+}
+
+function isValidIpv4(ip) {
+  return /^(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(ip || "");
+}
+
+function isRuleAllowed(rule) {
+  const now = Date.now();
+  const timeout = settings.leaseTimeout || DEFAULT_LEASE_TIMEOUT;
+  const isLeaseValid = (now - lastIpCheckTime) < timeout;
+  if (panicMode || !isLeaseValid || !currentIp || currentIp.includes("Unknown") || !Array.isArray(rule.ips)) return false;
+  return rule.ips.some(allowedIp => {
+    const cleanAllowed = (allowedIp || "").trim();
+    if (cleanAllowed.includes("/")) return ipInCidr(currentIp, cleanAllowed);
+    return cleanAllowed === currentIp;
+  });
+}
+
+function getCurrentlyAllowedDomains() {
+  return new Set(rules.filter(rule => isRuleAllowed(rule)).map(rule => normalizeDomain(rule.domain)).filter(Boolean));
+}
+
+async function maybeReloadBlockedTabs(beforeAllowedDomains) {
+  if (!settings.autoReload) return;
+  const afterAllowedDomains = getCurrentlyAllowedDomains();
+  const newlyAllowed = [...afterAllowedDomains].filter(d => !beforeAllowedDomains.has(d));
+  if (newlyAllowed.length === 0) return;
+
+  const blockedPrefix = chrome.runtime.getURL(BLOCK_PAGE_PATH);
+  const tabs = await chrome.tabs.query({ url: `${blockedPrefix}*` });
+  for (const tab of tabs) {
+    try {
+      const tabUrl = new URL(tab.url);
+      const target = tabUrl.searchParams.get("url");
+      if (!target) continue;
+      const targetHost = normalizeDomain(new URL(target).hostname);
+      const isNowAllowed = newlyAllowed.some(domain => targetHost === domain || targetHost.endsWith(`.${domain}`));
+      if (isNowAllowed && tab.id) {
+        await chrome.tabs.update(tab.id, { url: target });
+      }
+    } catch {
+      // ignore malformed tab
+    }
+  }
 }
 
 // --- Diagnostics ---
@@ -361,7 +430,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     let needsUpdate = false;
 
     if (changes.rules) {
-      rules = changes.rules.newValue || [];
+      rules = normalizeRulesArray(changes.rules.newValue || []);
       needsUpdate = true;
     }
     if (changes.settings) {
@@ -379,6 +448,62 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
   }
 });
+
+
+function buildIconImageData(size) {
+  const canvas = new OffscreenCanvas(size, size);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const center = size / 2;
+  const radius = (size / 2) - 1;
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = 'rgba(20, 28, 20, 1)';
+  ctx.beginPath();
+  ctx.arc(center, center, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.lineWidth = Math.max(1, Math.floor(size / 16));
+  ctx.strokeStyle = 'rgba(230, 255, 230, 1)';
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `bold ${Math.floor(size * 0.48)}px Arial`;
+
+  ctx.lineWidth = Math.max(1, Math.floor(size / 10));
+  ctx.strokeStyle = 'rgba(230, 255, 230, 1)';
+  ctx.strokeText('IP', center, center);
+
+  ctx.fillStyle = 'rgba(56, 210, 104, 1)';
+  ctx.fillText('IP', center, center);
+
+  return ctx.getImageData(0, 0, size, size);
+}
+
+function applyRuntimeActionIcon() {
+  if (!chrome.action || typeof OffscreenCanvas === 'undefined') return;
+
+  try {
+    const imageData = {
+      16: buildIconImageData(16),
+      32: buildIconImageData(32),
+      48: buildIconImageData(48),
+      128: buildIconImageData(128)
+    };
+
+    if (imageData[16] && imageData[32] && imageData[48] && imageData[128]) {
+      chrome.action.setIcon({ imageData }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn('Runtime icon set failed, using packaged assets:', chrome.runtime.lastError.message);
+        }
+      });
+    }
+  } catch (error) {
+    console.warn('Runtime icon drawing unavailable, using packaged assets:', error);
+  }
+}
 
 function applyWebRtcSetting() {
   if (!chrome.privacy || !chrome.privacy.network) return;
