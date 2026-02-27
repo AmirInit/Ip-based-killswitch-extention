@@ -1,31 +1,35 @@
-// verification/test_ip_logic.js
-
 const assert = require('assert');
 
-// Mock Data
-const currentIp = "1.2.3.4";
-const ruleIps = ["1.2.3.4", "5.6.7.8"];
-const ruleIpsMessy = [" 1.2.3.4 ", "5.6.7.8\n"];
-
-// Test 1: Exact Match
-assert.ok(ruleIps.includes(currentIp), "Exact match failed");
-
-// Test 2: Messy Match (Clean logic)
+const currentIp = '1.2.3.4';
+const ruleIpsMessy = [' 1.2.3.4 ', '5.6.7.8\n'];
 const cleaned = ruleIpsMessy.map(i => i.trim());
-assert.ok(cleaned.includes(currentIp), "Trimmed match failed");
+assert.ok(cleaned.includes(currentIp), 'Trimmed match failed');
 
-// Test 3: Failover Logic (Simulation)
-const providers = ["A", "B", "C"];
-let health = { "A": { failures: 5 }, "B": { failures: 0 } };
+const providers = [
+  { key: 'ifconfig', tier: 3 },
+  { key: 'aws', tier: 2 },
+  { key: 'ipify', tier: 1 },
+  { key: 'ipify64', tier: 1 }
+];
+
+const health = {
+  ipify: { failures: 1, lastSuccess: 1 },
+  ipify64: { failures: 0, lastSuccess: 2 },
+  aws: { failures: 0, lastSuccess: 0 },
+  ifconfig: { failures: 0, lastSuccess: 0 }
+};
 
 const sorted = [...providers].sort((a, b) => {
-    const hA = health[a] || { failures: 0 };
-    const hB = health[b] || { failures: 0 };
-    return hA.failures - hB.failures;
+  if (a.tier !== b.tier) return a.tier - b.tier;
+  const hA = health[a.key] || { failures: 0, lastSuccess: 0 };
+  const hB = health[b.key] || { failures: 0, lastSuccess: 0 };
+  if (hA.failures !== hB.failures) return hA.failures - hB.failures;
+  return hB.lastSuccess - hA.lastSuccess;
 });
 
-// Expect B (0 failures) -> C (0 failures, implicit) -> A (5 failures)
-assert.strictEqual(sorted[0], "B");
-assert.strictEqual(sorted[2], "A");
+assert.strictEqual(sorted[0].key, 'ipify64');
+assert.strictEqual(sorted[1].tier, 1);
+assert.strictEqual(sorted[2].tier, 2);
+assert.strictEqual(sorted[3].tier, 3);
 
-console.log("Logic tests passed!");
+console.log('Logic tests passed!');
