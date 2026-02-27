@@ -32,13 +32,8 @@
   },
   "web_accessible_resources": [
     {
-      "resources": [
-        "blocked/*",
-        "assets/*"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
+      "resources": ["blocked/blocked.html", "assets/*", "offscreen/offscreen.html"],
+      "matches": ["<all_urls>"]
     }
   ]
 }
