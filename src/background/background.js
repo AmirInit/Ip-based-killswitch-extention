@@ -35,6 +35,7 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 function initialize() {
+  setDynamicIcon();
   loadSettings().then(async () => {
     // Start lease monitor
     setInterval(checkLease, 1000);
@@ -43,11 +44,45 @@ function initialize() {
   });
 }
 
+function setDynamicIcon() {
+  try {
+    const canvas = new OffscreenCanvas(48, 48);
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#f44336';
+    ctx.beginPath();
+    ctx.arc(24, 24, 24, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('IP', 24, 24);
+
+    const imageData = ctx.getImageData(0, 0, 48, 48);
+    chrome.action.setIcon({ imageData });
+  } catch (e) {
+    console.warn('Failed to set dynamic icon:', e);
+  }
+}
+
 // --- Storage & Settings ---
+
+function normalizeRules(rawRules) {
+  if (!Array.isArray(rawRules)) return [];
+  return rawRules.map(r => ({
+    id: r.id || Date.now() + Math.random(),
+    domain: typeof r.domain === 'string' ? r.domain : '',
+    ips: Array.isArray(r.ips) ? r.ips : []
+  }));
+}
 
 async function loadSettings() {
   const data = await chrome.storage.local.get(["rules", "settings", "panicMode"]);
-  rules = data.rules || [];
+  rules = normalizeRules(data.rules || []);
   settings = { ...settings, ...data.settings };
   panicMode = data.panicMode || false;
 
@@ -227,8 +262,8 @@ async function updateDnrRules() {
     const blockId = (index * 10) + 2;
     const allowId = (index * 10) + 3;
 
-    // Regex for domain & subdomains
-    const regex = `^https?://([a-z0-9-]+\\.)*${escapeRegex(domain)}(/.*)?$`;
+    // Regex for domain & subdomains (matching http, https, ws, wss)
+    const regex = `^(https?|wss?)://([a-z0-9-]+\\.)*${escapeRegex(domain)}(/.*)?$`;
     const redirectUrl = `chrome-extension://${extensionId}/${BLOCK_PAGE_PATH}?url=\\0`;
 
     // A. Base Redirect Rule (Priority 1) - Targets main/sub frames to show UI
@@ -301,7 +336,15 @@ function escapeRegex(string) {
 
 function ipInCidr(ip, cidr) {
     try {
-        const [range, bits] = cidr.split('/');
+        const [range, bitsStr] = cidr.split('/');
+        const bits = parseInt(bitsStr, 10);
+        // Strict validation: Must be IPv4, bits between 0 and 32
+        if (isNaN(bits) || bits < 0 || bits > 32) return false;
+
+        // Basic IPv4 regex for range and ip
+        const ipv4Regex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+        if (!ipv4Regex.test(range) || !ipv4Regex.test(ip)) return false;
+
         const mask = ~(2**(32 - bits) - 1);
         return (ipToLong(ip) & mask) === (ipToLong(range) & mask);
     } catch(e) {
@@ -361,7 +404,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     let needsUpdate = false;
 
     if (changes.rules) {
-      rules = changes.rules.newValue || [];
+      rules = normalizeRules(changes.rules.newValue || []);
       needsUpdate = true;
     }
     if (changes.settings) {

@@ -112,10 +112,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     if (applicableRule) {
-      allowedIpsEl.textContent = applicableRule.ips.join(", ");
+      const allowedIps = Array.isArray(applicableRule.ips) ? applicableRule.ips : [];
+      allowedIpsEl.textContent = allowedIps.join(", ");
 
       // Check if NOW allowed
-      const isAllowed = applicableRule.ips.some(allowedIp => {
+      const isAllowed = allowedIps.some(allowedIp => {
            const cleanAllowed = allowedIp.trim();
            if (cleanAllowed.includes("/")) {
                return ipInCidr(currentIp, cleanAllowed);
@@ -138,7 +139,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Simple enough to copy for now.
   function ipInCidr(ip, cidr) {
     try {
-        const [range, bits] = cidr.split('/');
+        const [range, bitsStr] = cidr.split('/');
+        const bits = parseInt(bitsStr, 10);
+        // Strict validation: Must be IPv4, bits between 0 and 32
+        if (isNaN(bits) || bits < 0 || bits > 32) return false;
+
+        // Basic IPv4 regex for range and ip
+        const ipv4Regex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+        if (!ipv4Regex.test(range) || !ipv4Regex.test(ip)) return false;
+
         const mask = ~(2**(32 - bits) - 1);
         return (ipToLong(ip) & mask) === (ipToLong(range) & mask);
     } catch(e) {
